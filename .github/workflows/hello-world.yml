@@ -1,0 +1,16 @@
+name: Мой первый пайплайн
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  say-hello:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Проверка кода
+        uses: actions/checkout@v4
+
+      - name: Приветствие
+        run: echo "Привет, мир! Мой первый пайплайн успешно работает!"
