@@ -1,0 +1,80 @@
+name: "Running jobs in CI/CD with various parameters to deploy test environments and run autotests. Analyzing autotest run results, checking console and node logs in case of errors"
+
+# 1. НАСТРОЙКА ПАРАМЕТРОВ (Входные данные перед запуском)
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: # Позволяет запускать пайплайн вручную кнопкой
+    inputs:
+      environment:
+        description: 'Выберите тестовое окружение'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - qa-lab
+          - production
+      run_destructive_tests:
+        description: 'Включить тяжелые/разрушающие тесты?'
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  # JOB 1: Развертывание тестового окружения
+  deploy-env:
+    name: "Deploy Test Environment"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4
+
+      - name: Deploying Node.js backend to environment
+        # Используем параметры: если запуск по кнопке — берем ввод пользователя, если по push — ставим 'staging' по умолчанию
+        run: |
+          ENV_NAME="${{ github.event.inputs.environment || 'staging' }}"
+          echo "==== START DEPLOYMENT ===="
+          echo "Инициализация сервера для окружения: $ENV_NAME"
+          echo "Имитация копирования конфигов и поднятия Node.js контейнеров..."
+          sleep 3
+          echo "Сервер успешно запущен на порту 8080."
+          echo "==== DEPLOYMENT COMPLETE ===="
+
+  # JOB 2: Запуск автотестов и анализ логов (зависит от успешного деплоя)
+  run-autotests:
+    name: "Run Autotests & Analyze Logs"
+    needs: deploy-env # Тесты не начнутся, пока не завершится деплой
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4
+
+      - name: Run automated test suite
+        # Имитируем падение одного из тестов, чтобы научиться анализировать логи ошибок
+        run: |
+          echo "Запуск автотестов..."
+          echo "Test 1: Auth check ------ PASSED"
+          echo "Test 2: GET /api/v1/user - PASSED"
+          echo "Test 3: POST /api/v1/payment"
+          echo "⚠️ Error: CRITICAL_SERVER_ERROR (Status code: 500)"
+          echo "Фиксация падения теста..."
+          
+          # Записываем ошибку в консольный лог
+          echo "[ERROR] [NodeJS-Node1] Database connection timeout at pool.query" > node_error.log
+          echo "[CONSOLE-WARN] Unhandled promise rejection in payment_router.js" >> node_error.log
+          
+          # Намеренно завершаем шаг с ошибкой (код 1), чтобы пайплайн "упал" для анализа
+          exit 1
+
+      # Этот шаг выполнится ТОЛЬКО если предыдущий шаг упал (благодаря condition failure())
+      - name: "Checking console and node logs in case of errors"
+        if: ${{ failure() }}
+        run: |
+          echo "========================================================="
+          echo "🚨 ВНИМАНИЕ! Обнаружено падение автотестов. Выгрузка логов:"
+          echo "========================================================="
+          echo "--- ДАМП СЕРВЕРНОГО ЛОГА (node_error.log) ---"
+          cat node_error.log
+          echo "---------------------------------------------"
+          echo "Рекомендация: Проверьте доступность базы данных в конфигурации тестовой среды."
